@@ -9,6 +9,8 @@
     "build:renderer": "tsc -p tsconfig.json && vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "start": "electron .",
+    "download:ollama": "node scripts/download-ollama.js",
+    "postinstall": "node scripts/download-ollama.js",
     "package": "./scripts/package.sh",
     "package:mac": "./scripts/package.sh mac",
     "package:win": "./scripts/package.sh win",
@@ -53,6 +55,13 @@
       "target": [
         "dmg",
         "zip"
+      ],
+      "extraResources": [
+        {
+          "from": "resources/ollama/darwin/",
+          "to": "ollama/",
+          "filter": ["**/*"]
+        }
       ]
     },
     "win": {
@@ -60,6 +69,13 @@
       "target": [
         "nsis",
         "zip"
+      ],
+      "extraResources": [
+        {
+          "from": "resources/ollama/win32-x64/",
+          "to": "ollama/",
+          "filter": ["**/*"]
+        }
       ]
     },
     "linux": {
@@ -68,7 +84,14 @@
         "AppImage",
         "deb"
       ],
-      "category": "Office"
+      "category": "Office",
+      "extraResources": [
+        {
+          "from": "resources/ollama/linux-x64/",
+          "to": "ollama/",
+          "filter": ["**/*"]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

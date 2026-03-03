@@ -30,6 +30,14 @@ const electronAPI = {
     return () => ipcRenderer.removeListener('ollama:pv-progress', handler);
   },
   setOllamaUrl: (url: string) => ipcRenderer.invoke('ollama:set-url', url),
+  pullOllamaModel: (modelName: string) => ipcRenderer.invoke('ollama:pull-model', modelName),
+  deleteOllamaModel: (modelName: string) => ipcRenderer.invoke('ollama:delete-model', modelName),
+  onOllamaPullProgress: (callback: (data: { status: string; completed: number; total: number }) => void) => {
+    const handler = (_event: any, data: { status: string; completed: number; total: number }) => callback(data);
+    ipcRenderer.on('ollama:pull-progress', handler);
+    return () => ipcRenderer.removeListener('ollama:pull-progress', handler);
+  },
+  getOllamaStatus: () => ipcRenderer.invoke('ollama:status'),
 
   // Dialogs
   openAudioFile: () => ipcRenderer.invoke('dialog:open-audio-file'),

@@ -164,14 +164,10 @@ function GeneratePage({ appState, updateState }: Props) {
 
         {ollamaAvailable === false && (
           <div className="alert alert-error" style={{ marginTop: '16px' }}>
-            Ollama n'est pas accessible. Assurez-vous qu'Ollama est installe et lance :
+            Le serveur Ollama embarque n'est pas encore pret.
+            Il demarre automatiquement avec l'application — patientez quelques secondes puis reverifiez.
             <br /><br />
-            <code style={{ background: 'rgba(0,0,0,0.1)', padding: '4px 8px', borderRadius: '4px' }}>
-              ollama serve
-            </code>
-            <br /><br />
-            Vous pouvez telecharger Ollama sur{' '}
-            <strong>https://ollama.ai</strong>
+            Si le probleme persiste, verifiez dans les <strong>Parametres</strong> que le binaire Ollama est bien installe.
           </div>
         )}
       </div>

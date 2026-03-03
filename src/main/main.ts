@@ -6,6 +6,7 @@ import { TemplateService } from './services/template';
 import { DocumentGenerator } from './services/documentGenerator';
 import { StoreService } from './services/store';
 import { OllamaService } from './services/ollama';
+import { OllamaManager } from './services/ollamaManager';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -15,6 +16,7 @@ let templateService: TemplateService;
 let documentGenerator: DocumentGenerator;
 let storeService: StoreService;
 let ollamaService: OllamaService;
+let ollamaManager: OllamaManager;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -32,7 +34,6 @@ function createWindow() {
   });
 
   if (isDev) {
-    // Use the URL passed by dev script, or fallback to default
     const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
     console.log(`[main] Loading dev server: ${devUrl}`);
     mainWindow.loadURL(devUrl);
@@ -58,8 +59,6 @@ function createWindow() {
 }
 
 function initializeServices() {
-  // Store models in userData so they persist across updates
-  // and don't bloat the app bundle
   const modelsPath = app.isPackaged
     ? path.join(app.getPath('userData'), 'models')
     : path.join(__dirname, '../../models');
@@ -68,7 +67,28 @@ function initializeServices() {
   templateService = new TemplateService();
   documentGenerator = new DocumentGenerator();
   storeService = new StoreService();
-  ollamaService = new OllamaService();
+
+  // Initialize embedded Ollama manager
+  ollamaManager = new OllamaManager();
+
+  // OllamaService uses the embedded server's URL
+  ollamaService = new OllamaService(ollamaManager.baseUrl);
+}
+
+async function startEmbeddedOllama() {
+  if (!ollamaManager.isBinaryAvailable()) {
+    console.warn('[main] Ollama binary not found — embedded Ollama unavailable');
+    return;
+  }
+
+  try {
+    await ollamaManager.start();
+    // Point OllamaService at the embedded server
+    ollamaService.setBaseUrl(ollamaManager.baseUrl);
+    console.log('[main] Embedded Ollama started successfully');
+  } catch (error: any) {
+    console.error('[main] Failed to start embedded Ollama:', error.message);
+  }
 }
 
 function registerIpcHandlers() {
@@ -147,7 +167,6 @@ function registerIpcHandlers() {
       }
       const content = fs.readFileSync(result.filePaths[0], 'utf-8');
       const data = JSON.parse(content);
-      // Basic validation
       if (!data.segments || !Array.isArray(data.segments) || typeof data.fullText !== 'string') {
         return { success: false, error: 'Fichier invalide : format de transcription non reconnu' };
       }
@@ -203,6 +222,38 @@ function registerIpcHandlers() {
     storeService.set('ollamaUrl', url);
   });
 
+  // Ollama model pull/delete (via embedded manager)
+  ipcMain.handle('ollama:pull-model', async (_event, modelName: string) => {
+    try {
+      await ollamaManager.pullModel(modelName, (status, completed, total) => {
+        mainWindow?.webContents.send('ollama:pull-progress', { status, completed, total });
+      });
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('ollama:delete-model', async (_event, modelName: string) => {
+    try {
+      await ollamaManager.deleteModel(modelName);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('ollama:status', async () => {
+    return {
+      success: true,
+      data: {
+        running: ollamaManager.isRunning,
+        binaryAvailable: ollamaManager.isBinaryAvailable(),
+        baseUrl: ollamaManager.baseUrl,
+      },
+    };
+  });
+
   // File dialog handlers
   ipcMain.handle('dialog:open-audio-file', async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
@@ -253,7 +304,7 @@ function registerIpcHandlers() {
     }
   });
 
-  // Document generation handler — now takes PVContent directly
+  // Document generation handler
   ipcMain.handle('document:generate', async (_event, pvContent: any, outputPath: string, templatePath?: string) => {
     try {
       await documentGenerator.generateFromPV(pvContent, outputPath, templatePath);
@@ -276,13 +327,13 @@ function registerIpcHandlers() {
     return storeService.getRecentSessions();
   });
 
-  ipcMain.handle('store:save-session', async (_event, session: any) => {
-    storeService.saveSession(session);
+  ipcMain.handle('store:save-session', async (_event, sessionData: any) => {
+    storeService.saveSession(sessionData);
   });
 }
 
-app.whenReady().then(() => {
-  // Set CSP headers - permissive in dev, restrictive in prod
+app.whenReady().then(async () => {
+  // Set CSP headers
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const csp = isDev
       ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws://localhost:* http://localhost:*; img-src 'self' data:"
@@ -296,21 +347,24 @@ app.whenReady().then(() => {
   });
 
   initializeServices();
-
-  // Restore saved Ollama URL
-  const savedOllamaUrl = storeService.get('ollamaUrl') as string | undefined;
-  if (savedOllamaUrl) {
-    ollamaService.setBaseUrl(savedOllamaUrl);
-  }
-
   registerIpcHandlers();
   createWindow();
+
+  // Start embedded Ollama in the background (non-blocking)
+  startEmbeddedOllama();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
+});
+
+// Stop embedded Ollama before quitting
+app.on('before-quit', async () => {
+  if (ollamaManager) {
+    await ollamaManager.stop();
+  }
 });
 
 app.on('window-all-closed', () => {

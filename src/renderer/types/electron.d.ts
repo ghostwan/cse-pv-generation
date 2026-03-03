@@ -87,6 +87,10 @@ export interface ElectronAPI {
   generatePV: (transcription: string, modelName: string) => Promise<IpcResponse<PVContent>>;
   onPVGenerationProgress: (callback: (text: string) => void) => () => void;
   setOllamaUrl: (url: string) => Promise<void>;
+  pullOllamaModel: (modelName: string) => Promise<IpcResponse>;
+  deleteOllamaModel: (modelName: string) => Promise<IpcResponse>;
+  onOllamaPullProgress: (callback: (data: { status: string; completed: number; total: number }) => void) => () => void;
+  getOllamaStatus: () => Promise<IpcResponse<{ running: boolean; binaryAvailable: boolean; baseUrl: string }>>;
 
   // Dialogs
   openAudioFile: () => Promise<string | null>;

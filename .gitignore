@@ -6,3 +6,6 @@ models/*.bin
 *.tsbuildinfo
 .DS_Store
 Thumbs.db
+
+# Embedded binaries (downloaded at build time)
+resources/ollama/
