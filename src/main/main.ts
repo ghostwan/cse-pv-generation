@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, session, Notification } from 'electron';
 import path from 'path';
 import { TranscriptionService } from './services/transcription';
 import { TemplateService } from './services/template';
@@ -74,8 +74,20 @@ function registerIpcHandlers() {
       const result = await transcriptionService.transcribe(audioFilePath, options, (progress: number) => {
         mainWindow?.webContents.send('transcription:progress', progress);
       });
+
+      const segmentCount = result.segments.length;
+      new Notification({
+        title: 'Transcription terminée',
+        body: `${segmentCount} segment${segmentCount > 1 ? 's' : ''} transcrit${segmentCount > 1 ? 's' : ''} avec succès.`,
+      }).show();
+
       return { success: true, data: result };
     } catch (error: any) {
+      new Notification({
+        title: 'Erreur de transcription',
+        body: error.message.substring(0, 200),
+      }).show();
+
       return { success: false, error: error.message };
     }
   });
