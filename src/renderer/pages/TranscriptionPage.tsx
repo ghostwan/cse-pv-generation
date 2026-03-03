@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { AppState } from '../App';
 
 interface Props {
@@ -12,7 +12,23 @@ function TranscriptionPage({ appState, updateState }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [model, setModel] = useState('base');
   const [language, setLanguage] = useState('fr');
-  const [progress, setProgress] = useState<string>('');
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [progressLabel, setProgressLabel] = useState('');
+
+  // Listen for transcription progress events from main process
+  useEffect(() => {
+    const cleanup = window.electronAPI.onTranscriptionProgress((progress: number) => {
+      setProgressPercent(progress);
+      if (progress < 2) {
+        setProgressLabel('Conversion audio...');
+      } else if (progress < 98) {
+        setProgressLabel(`Transcription en cours... ${progress}%`);
+      } else {
+        setProgressLabel('Finalisation...');
+      }
+    });
+    return cleanup;
+  }, []);
 
   const handleSelectFile = useCallback(async () => {
     try {
@@ -31,10 +47,10 @@ function TranscriptionPage({ appState, updateState }: Props) {
 
     setIsTranscribing(true);
     setError(null);
-    setProgress('Préparation de la transcription...');
+    setProgressPercent(0);
+    setProgressLabel('Préparation...');
 
     try {
-      setProgress('Transcription en cours... Cela peut prendre plusieurs minutes.');
       const result = await window.electronAPI.transcribe(audioFile, { language, model });
 
       if (result.success && result.data) {
@@ -42,7 +58,8 @@ function TranscriptionPage({ appState, updateState }: Props) {
           transcription: result.data.fullText,
           transcriptionSegments: result.data.segments,
         });
-        setProgress('');
+        setProgressPercent(100);
+        setProgressLabel('');
       } else {
         setError(result.error || 'Erreur inconnue lors de la transcription');
       }
@@ -50,7 +67,6 @@ function TranscriptionPage({ appState, updateState }: Props) {
       setError(err.message);
     } finally {
       setIsTranscribing(false);
-      setProgress('');
     }
   }, [audioFile, language, model, updateState]);
 
@@ -138,7 +154,7 @@ function TranscriptionPage({ appState, updateState }: Props) {
           {isTranscribing ? (
             <>
               <span className="spinner" />
-              Transcription en cours...
+              Transcription en cours... {progressPercent}%
             </>
           ) : (
             <>
@@ -150,10 +166,18 @@ function TranscriptionPage({ appState, updateState }: Props) {
           )}
         </button>
 
-        {progress && (
-          <div className="alert alert-info mt-4">
-            <span className="spinner" style={{ marginRight: '8px' }} />
-            {progress}
+        {isTranscribing && (
+          <div style={{ marginTop: '16px' }}>
+            <div className="flex items-center justify-between" style={{ marginBottom: '6px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{progressLabel}</span>
+              <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--primary)' }}>{progressPercent}%</span>
+            </div>
+            <div className="progress-bar">
+              <div
+                className="progress-bar-fill"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
           </div>
         )}
       </div>

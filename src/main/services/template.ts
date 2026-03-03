@@ -33,40 +33,28 @@ export class TemplateService {
     const doc = new Docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
-      delimiters: { start: '{', end: '}' },
     });
 
-    // Extract all tags/placeholders from the template
-    const tags = doc.getFullText();
-    const placeholderRegex = /\{([^}]+)\}/g;
+    // Use getFullText() which resolves fragmented tags across XML elements
+    // This handles cases where Word splits {placeholder} into
+    // <w:t>{</w:t><w:t>placeholder</w:t><w:t>}</w:t>
+    const fullText = doc.getFullText();
     const placeholders: Set<string> = new Set();
 
-    // Also parse the raw XML to find all placeholders
-    const xmlFiles = ['word/document.xml', 'word/header1.xml', 'word/header2.xml', 'word/footer1.xml', 'word/footer2.xml'];
-    
-    for (const xmlFile of xmlFiles) {
-      try {
-        const xmlContent = zip.file(xmlFile)?.asText();
-        if (xmlContent) {
-          // Match simple placeholders {placeholder}
-          let match;
-          const simpleRegex = /\{([^}#/]+)\}/g;
-          while ((match = simpleRegex.exec(xmlContent)) !== null) {
-            const placeholder = match[1].trim();
-            if (placeholder && !placeholder.startsWith('w:') && !placeholder.startsWith('xml')) {
-              placeholders.add(placeholder);
-            }
-          }
-
-          // Match loop placeholders {#items}...{/items}
-          const loopRegex = /\{#([^}]+)\}/g;
-          while ((match = loopRegex.exec(xmlContent)) !== null) {
-            placeholders.add(`#${match[1].trim()}`);
-          }
-        }
-      } catch {
-        // File might not exist in the template
+    // Simple placeholders {name}
+    const simpleRegex = /\{([^}#/]+)\}/g;
+    let match;
+    while ((match = simpleRegex.exec(fullText)) !== null) {
+      const tag = match[1].trim();
+      if (tag) {
+        placeholders.add(tag);
       }
+    }
+
+    // Loop placeholders {#items}...{/items}
+    const loopRegex = /\{#([^}]+)\}/g;
+    while ((match = loopRegex.exec(fullText)) !== null) {
+      placeholders.add(`#${match[1].trim()}`);
     }
 
     return Array.from(placeholders);

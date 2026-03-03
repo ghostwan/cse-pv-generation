@@ -42,15 +42,12 @@ function getEmbeddedFfmpegPath(): string {
 }
 
 function getWhisperCppPath(): string {
-  // whisper-node ships a compiled whisper.cpp binary
   const whisperNodePath = require.resolve('whisper-node');
   const whisperCppDir = path.join(path.dirname(whisperNodePath), '..', 'lib', 'whisper.cpp');
   let mainBin = path.join(whisperCppDir, 'main');
-
   if (app.isPackaged) {
     mainBin = mainBin.replace('app.asar', 'app.asar.unpacked');
   }
-
   return mainBin;
 }
 
@@ -87,7 +84,6 @@ export class TranscriptionService {
     if (!fs.existsSync(this.modelsPath)) {
       fs.mkdirSync(this.modelsPath, { recursive: true });
     }
-    // Ensure whisper.cpp binary is built
     try {
       ensureWhisperBuilt();
     } catch (err) {
@@ -166,7 +162,11 @@ export class TranscriptionService {
     });
   }
 
-  async transcribe(audioFilePath: string, options?: { language?: string; model?: string }): Promise<TranscriptionResult> {
+  async transcribe(
+    audioFilePath: string,
+    options?: { language?: string; model?: string },
+    onProgress?: (progress: number) => void
+  ): Promise<TranscriptionResult> {
     const modelName = options?.model || 'base';
     const language = options?.language || 'fr';
 
@@ -180,11 +180,17 @@ export class TranscriptionService {
       throw new Error(`Le modèle ${modelName} n'est pas téléchargé. Veuillez le télécharger d'abord.`);
     }
 
-    // Convert audio to WAV 16kHz mono if needed
+    // Step 1: Convert audio
+    onProgress?.(0);
     const wavPath = await this.convertToWav(audioFilePath);
 
+    // Step 2: Get audio duration for progress calculation
+    const durationSeconds = await this.getAudioDuration(wavPath);
+    console.log(`[transcription] Audio duration: ${durationSeconds}s`);
+    onProgress?.(2);
+
     try {
-      // Call whisper.cpp binary directly (more reliable than whisper-node wrapper)
+      // Step 3: Run whisper.cpp with real-time progress
       const whisperBin = getWhisperCppPath();
       const whisperDir = getWhisperCppDir();
 
@@ -192,20 +198,59 @@ export class TranscriptionService {
       console.log(`[transcription] Model: ${modelPath}`);
       console.log(`[transcription] Audio: ${wavPath}`);
 
-      const output = await this.runWhisperCpp(whisperBin, whisperDir, modelPath, wavPath, language);
+      const output = await this.runWhisperCpp(
+        whisperBin, whisperDir, modelPath, wavPath, language,
+        durationSeconds, onProgress
+      );
+
       const segments = this.parseWhisperOutput(output);
       const fullText = segments
         .map((s) => s.speech)
         .filter((s) => s.length > 0)
         .join(' ');
 
+      onProgress?.(100);
       return { segments, fullText };
     } finally {
-      // Cleanup temp wav file if we created one
       if (wavPath !== audioFilePath && fs.existsSync(wavPath)) {
         fs.unlinkSync(wavPath);
       }
     }
+  }
+
+  private getAudioDuration(wavPath: string): Promise<number> {
+    return new Promise((resolve) => {
+      const ffmpegBin = getEmbeddedFfmpegPath();
+      const proc = spawn(ffmpegBin, ['-i', wavPath, '-f', 'null', '-']);
+
+      let stderr = '';
+      proc.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', () => {
+        // Parse duration from ffmpeg output: "Duration: HH:MM:SS.ms"
+        const match = stderr.match(/Duration:\s*(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+        if (match) {
+          const hours = parseInt(match[1], 10);
+          const minutes = parseInt(match[2], 10);
+          const seconds = parseInt(match[3], 10);
+          resolve(hours * 3600 + minutes * 60 + seconds);
+        } else {
+          // Fallback: estimate from WAV file size (16kHz, 16-bit, mono = 32000 bytes/sec)
+          try {
+            const stats = fs.statSync(wavPath);
+            resolve(Math.floor((stats.size - 44) / 32000)); // subtract WAV header
+          } catch {
+            resolve(0);
+          }
+        }
+      });
+
+      proc.on('error', () => {
+        resolve(0);
+      });
+    });
   }
 
   private runWhisperCpp(
@@ -213,7 +258,9 @@ export class TranscriptionService {
     cwd: string,
     modelPath: string,
     audioPath: string,
-    language: string
+    language: string,
+    totalDurationSeconds: number,
+    onProgress?: (progress: number) => void
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const args = [
@@ -232,20 +279,32 @@ export class TranscriptionService {
 
       let stdout = '';
       let stderr = '';
+      let lastProgress = 2;
 
       proc.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString();
+        const chunk = data.toString();
+        stdout += chunk;
+
+        // Calculate progress from the latest timestamp in stdout
+        if (totalDurationSeconds > 0 && onProgress) {
+          const timestampRegex = /\[(\d{2}):(\d{2}):(\d{2})\.\d{3}\s*-->/g;
+          let match;
+          let latestSeconds = 0;
+          while ((match = timestampRegex.exec(stdout)) !== null) {
+            const s = parseInt(match[1], 10) * 3600 + parseInt(match[2], 10) * 60 + parseInt(match[3], 10);
+            if (s > latestSeconds) latestSeconds = s;
+          }
+          // Map to 2-98% range (0-2% is conversion, 98-100% is finalization)
+          const pct = Math.min(98, Math.floor(2 + (latestSeconds / totalDurationSeconds) * 96));
+          if (pct > lastProgress) {
+            lastProgress = pct;
+            onProgress(pct);
+          }
+        }
       });
 
       proc.stderr.on('data', (data: Buffer) => {
         stderr += data.toString();
-        // Log progress lines from whisper.cpp
-        const lines = data.toString().split('\n');
-        for (const line of lines) {
-          if (line.includes('progress')) {
-            console.log(`[transcription] ${line.trim()}`);
-          }
-        }
       });
 
       proc.on('close', (code) => {
@@ -265,7 +324,6 @@ export class TranscriptionService {
 
   private parseWhisperOutput(output: string): TranscriptionSegment[] {
     const segments: TranscriptionSegment[] = [];
-    // Parse lines like: [00:00:00.000 --> 00:00:02.000]   Allô !
     const regex = /\[(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})\]\s*(.*)/g;
     let match;
 
@@ -273,7 +331,7 @@ export class TranscriptionService {
       const speech = match[3].trim();
       if (speech && speech !== '.' && speech !== '*' && !speech.match(/^\*+$/)) {
         segments.push({
-          start: match[1].substring(0, 8), // HH:MM:SS
+          start: match[1].substring(0, 8),
           end: match[2].substring(0, 8),
           speech,
         });
@@ -291,7 +349,6 @@ export class TranscriptionService {
 
     const outputPath = inputPath.replace(/\.[^.]+$/, '_converted.wav');
 
-    // Skip conversion if already converted
     if (fs.existsSync(outputPath)) {
       console.log(`[transcription] Using existing converted file: ${outputPath}`);
       return outputPath;

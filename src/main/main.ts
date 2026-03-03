@@ -71,7 +71,9 @@ function registerIpcHandlers() {
   // Transcription handlers
   ipcMain.handle('transcription:start', async (_event, audioFilePath: string, options?: { language?: string; model?: string }) => {
     try {
-      const result = await transcriptionService.transcribe(audioFilePath, options);
+      const result = await transcriptionService.transcribe(audioFilePath, options, (progress: number) => {
+        mainWindow?.webContents.send('transcription:progress', progress);
+      });
       return { success: true, data: result };
     } catch (error: any) {
       return { success: false, error: error.message };

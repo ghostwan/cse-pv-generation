@@ -11,6 +11,11 @@ const electronAPI = {
     ipcRenderer.on('transcription:download-progress', handler);
     return () => ipcRenderer.removeListener('transcription:download-progress', handler);
   },
+  onTranscriptionProgress: (callback: (progress: number) => void) => {
+    const handler = (_event: any, progress: number) => callback(progress);
+    ipcRenderer.on('transcription:progress', handler);
+    return () => ipcRenderer.removeListener('transcription:progress', handler);
+  },
 
   // Dialogs
   openAudioFile: () => ipcRenderer.invoke('dialog:open-audio-file'),

@@ -43,6 +43,7 @@ export interface ElectronAPI {
   getModels: () => Promise<IpcResponse<ModelInfo[]>>;
   downloadModel: (modelName: string) => Promise<IpcResponse>;
   onDownloadProgress: (callback: (progress: number) => void) => () => void;
+  onTranscriptionProgress: (callback: (progress: number) => void) => () => void;
   openAudioFile: () => Promise<string | null>;
   openTemplateFile: () => Promise<string | null>;
   saveDocument: () => Promise<string | null>;

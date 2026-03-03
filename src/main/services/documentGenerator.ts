@@ -12,6 +12,10 @@ export class DocumentGenerator {
       throw new Error(`Template introuvable: ${templatePath}`);
     }
 
+    console.log('[docgen] Generating document from template:', templatePath);
+    console.log('[docgen] Data keys:', Object.keys(data));
+    console.log('[docgen] Output:', outputPath);
+
     const content = fs.readFileSync(templatePath, 'binary');
     const zip = new PizZip(content);
 
@@ -23,17 +27,16 @@ export class DocumentGenerator {
       },
     });
 
-    // Set the data to fill placeholders
-    doc.setData(data);
-
     try {
-      doc.render();
+      doc.render(data);
     } catch (error: any) {
-      const e = {
-        message: error.message,
-        properties: error.properties,
-      };
-      throw new Error(`Erreur lors de la génération du document: ${e.message}`);
+      console.error('[docgen] Render error:', error.message);
+      if (error.properties?.errors) {
+        for (const err of error.properties.errors) {
+          console.error('[docgen]  -', err.message);
+        }
+      }
+      throw new Error(`Erreur lors de la génération du document: ${error.message}`);
     }
 
     const output = doc.getZip().generate({
@@ -42,5 +45,13 @@ export class DocumentGenerator {
     });
 
     fs.writeFileSync(outputPath, output);
+
+    // Verify the output
+    const verifyContent = fs.readFileSync(outputPath, 'binary');
+    const verifyZip = new PizZip(verifyContent);
+    const verifyDoc = new Docxtemplater(verifyZip, { paragraphLoop: true, linebreaks: true });
+    const verifyText = verifyDoc.getFullText();
+    console.log('[docgen] Generated document text length:', verifyText.length);
+    console.log('[docgen] First 200 chars:', verifyText.substring(0, 200));
   }
 }
