@@ -5,6 +5,7 @@ import { TranscriptionService } from './services/transcription';
 import { TemplateService } from './services/template';
 import { DocumentGenerator } from './services/documentGenerator';
 import { StoreService } from './services/store';
+import { OllamaService } from './services/ollama';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -13,6 +14,7 @@ let transcriptionService: TranscriptionService;
 let templateService: TemplateService;
 let documentGenerator: DocumentGenerator;
 let storeService: StoreService;
+let ollamaService: OllamaService;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -66,6 +68,7 @@ function initializeServices() {
   templateService = new TemplateService();
   documentGenerator = new DocumentGenerator();
   storeService = new StoreService();
+  ollamaService = new OllamaService();
 }
 
 function registerIpcHandlers() {
@@ -78,8 +81,8 @@ function registerIpcHandlers() {
 
       const segmentCount = result.segments.length;
       new Notification({
-        title: 'Transcription terminée',
-        body: `${segmentCount} segment${segmentCount > 1 ? 's' : ''} transcrit${segmentCount > 1 ? 's' : ''} avec succès.`,
+        title: 'Transcription terminee',
+        body: `${segmentCount} segment${segmentCount > 1 ? 's' : ''} transcrit${segmentCount > 1 ? 's' : ''} avec succes.`,
       }).show();
 
       return { success: true, data: result };
@@ -124,7 +127,7 @@ function registerIpcHandlers() {
         defaultPath: defaultName,
       });
       if (result.canceled || !result.filePath) {
-        return { success: false, error: 'Export annulé' };
+        return { success: false, error: 'Export annule' };
       }
       fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2), 'utf-8');
       return { success: true, data: result.filePath };
@@ -140,7 +143,7 @@ function registerIpcHandlers() {
         filters: [{ name: 'Transcription JSON', extensions: ['json'] }],
       });
       if (result.canceled || result.filePaths.length === 0) {
-        return { success: false, error: 'Import annulé' };
+        return { success: false, error: 'Import annule' };
       }
       const content = fs.readFileSync(result.filePaths[0], 'utf-8');
       const data = JSON.parse(content);
@@ -152,6 +155,52 @@ function registerIpcHandlers() {
     } catch (error: any) {
       return { success: false, error: error.message };
     }
+  });
+
+  // Ollama handlers
+  ipcMain.handle('ollama:check', async () => {
+    try {
+      const available = await ollamaService.isAvailable();
+      return { success: true, data: available };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('ollama:list-models', async () => {
+    try {
+      const models = await ollamaService.listModels();
+      return { success: true, data: models };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('ollama:generate-pv', async (_event, transcription: string, modelName: string) => {
+    try {
+      const pvContent = await ollamaService.generatePV(transcription, modelName, (text: string) => {
+        mainWindow?.webContents.send('ollama:pv-progress', text);
+      });
+
+      new Notification({
+        title: 'PV genere',
+        body: `Le proces-verbal "${pvContent.titre}" a ete genere avec succes.`,
+      }).show();
+
+      return { success: true, data: pvContent };
+    } catch (error: any) {
+      new Notification({
+        title: 'Erreur de generation',
+        body: error.message.substring(0, 200),
+      }).show();
+
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('ollama:set-url', async (_event, url: string) => {
+    ollamaService.setBaseUrl(url);
+    storeService.set('ollamaUrl', url);
   });
 
   // File dialog handlers
@@ -204,10 +253,10 @@ function registerIpcHandlers() {
     }
   });
 
-  // Document generation handlers
-  ipcMain.handle('document:generate', async (_event, templatePath: string, data: Record<string, any>, outputPath: string) => {
+  // Document generation handler — now takes PVContent directly
+  ipcMain.handle('document:generate', async (_event, pvContent: any, outputPath: string, templatePath?: string) => {
     try {
-      await documentGenerator.generate(templatePath, data, outputPath);
+      await documentGenerator.generateFromPV(pvContent, outputPath, templatePath);
       return { success: true, data: outputPath };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -247,6 +296,13 @@ app.whenReady().then(() => {
   });
 
   initializeServices();
+
+  // Restore saved Ollama URL
+  const savedOllamaUrl = storeService.get('ollamaUrl') as string | undefined;
+  if (savedOllamaUrl) {
+    ollamaService.setBaseUrl(savedOllamaUrl);
+  }
+
   registerIpcHandlers();
   createWindow();
 

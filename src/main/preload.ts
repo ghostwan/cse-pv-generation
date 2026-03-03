@@ -19,6 +19,18 @@ const electronAPI = {
   exportTranscription: (data: any) => ipcRenderer.invoke('transcription:export', data),
   importTranscription: () => ipcRenderer.invoke('transcription:import'),
 
+  // Ollama
+  checkOllama: () => ipcRenderer.invoke('ollama:check'),
+  listOllamaModels: () => ipcRenderer.invoke('ollama:list-models'),
+  generatePV: (transcription: string, modelName: string) =>
+    ipcRenderer.invoke('ollama:generate-pv', transcription, modelName),
+  onPVGenerationProgress: (callback: (text: string) => void) => {
+    const handler = (_event: any, text: string) => callback(text);
+    ipcRenderer.on('ollama:pv-progress', handler);
+    return () => ipcRenderer.removeListener('ollama:pv-progress', handler);
+  },
+  setOllamaUrl: (url: string) => ipcRenderer.invoke('ollama:set-url', url),
+
   // Dialogs
   openAudioFile: () => ipcRenderer.invoke('dialog:open-audio-file'),
   openTemplateFile: () => ipcRenderer.invoke('dialog:open-template-file'),
@@ -29,8 +41,8 @@ const electronAPI = {
   getPlaceholders: (filePath: string) => ipcRenderer.invoke('template:get-placeholders', filePath),
 
   // Document generation
-  generateDocument: (templatePath: string, data: Record<string, any>, outputPath: string) =>
-    ipcRenderer.invoke('document:generate', templatePath, data, outputPath),
+  generateDocument: (pvContent: any, outputPath: string, templatePath?: string) =>
+    ipcRenderer.invoke('document:generate', pvContent, outputPath, templatePath),
 
   // Store
   storeGet: (key: string) => ipcRenderer.invoke('store:get', key),

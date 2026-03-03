@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import TranscriptionPage from './pages/TranscriptionPage';
-import TemplatePage from './pages/TemplatePage';
 import GeneratePage from './pages/GeneratePage';
-import ModelsPage from './pages/ModelsPage';
+import SettingsPage from './pages/SettingsPage';
 import './types/electron.d';
+import type { PVContent } from './types/electron.d';
 
-type Page = 'transcription' | 'template' | 'generate' | 'models';
+export type Page = 'transcription' | 'generate' | 'settings';
 
 export interface AppState {
   transcription: string;
   transcriptionSegments: { start: string; end: string; speech: string }[];
-  templatePath: string | null;
-  templatePlaceholders: string[];
   sessionTitle: string;
+  pvContent: PVContent | null;
+  templatePath: string | null;
 }
 
 function App() {
@@ -21,9 +21,9 @@ function App() {
   const [appState, setAppState] = useState<AppState>({
     transcription: '',
     transcriptionSegments: [],
-    templatePath: null,
-    templatePlaceholders: [],
     sessionTitle: '',
+    pvContent: null,
+    templatePath: null,
   });
 
   const updateState = (updates: Partial<AppState>) => {
@@ -34,12 +34,10 @@ function App() {
     switch (currentPage) {
       case 'transcription':
         return <TranscriptionPage appState={appState} updateState={updateState} />;
-      case 'template':
-        return <TemplatePage appState={appState} updateState={updateState} />;
       case 'generate':
         return <GeneratePage appState={appState} updateState={updateState} />;
-      case 'models':
-        return <ModelsPage />;
+      case 'settings':
+        return <SettingsPage />;
       default:
         return <TranscriptionPage appState={appState} updateState={updateState} />;
     }
