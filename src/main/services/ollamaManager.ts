@@ -46,8 +46,8 @@ export class OllamaManager {
         return path.join(resourcesPath, 'ollama', 'ollama.exe');
       }
     } else {
-      // In development, binary is in resources/ollama/<platform>/
-      const devBase = path.join(__dirname, '..', '..', 'resources', 'ollama');
+      // In development, __dirname = dist/main/services/, project root is 3 levels up
+      const devBase = path.join(__dirname, '..', '..', '..', 'resources', 'ollama');
       if (platform === 'darwin') {
         return path.join(devBase, 'darwin', 'ollama');
       } else if (platform === 'linux') {
