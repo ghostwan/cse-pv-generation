@@ -24,38 +24,18 @@ export interface PVSection {
   discussion: string;
 }
 
-const SYSTEM_PROMPT = `Tu es un rédacteur professionnel spécialisé dans la rédaction de procès-verbaux de réunions CSE (Comité Social et Économique).
+const SYSTEM_PROMPT = `Tu es un rédacteur professionnel de procès-verbaux de réunions CSE (Comité Social et Économique).
 
-À partir d'une transcription brute d'une réunion CSE, tu dois produire un PV structuré et professionnel.
+À partir de la transcription fournie, produis un PV structuré en JSON.
 
-RÈGLES IMPORTANTES :
-- Distingue clairement les interventions de la Direction et celles des représentants du CSE
-- Résume les propos de la Direction dans leurs grandes lignes (pas de verbatim)
-- Résume les interventions du CSE de manière fidèle
-- Identifie les points de l'ordre du jour abordés
-- Extrais les décisions prises
-- Identifie les participants mentionnés
-- Utilise un ton formel et professionnel
-- Sois synthétique mais complet
+RÈGLES :
+- Distingue les interventions de la Direction vs les représentants CSE
+- Résume les propos (pas de verbatim)
+- Identifie les points de l'ordre du jour, participants, décisions
+- Ton formel et professionnel, synthétique mais complet
 
-Tu dois répondre UNIQUEMENT en JSON valide, sans markdown, sans backticks, avec cette structure exacte :
-{
-  "titre": "Titre de la réunion",
-  "date": "Date si mentionnée, sinon vide",
-  "participants_direction": ["Nom1", "Nom2"],
-  "participants_cse": ["Nom1", "Nom2"],
-  "ordre_du_jour": ["Point 1", "Point 2"],
-  "sections": [
-    {
-      "titre": "Titre du point abordé",
-      "resume_direction": "Ce que la direction a présenté/dit sur ce point",
-      "resume_cse": "Ce que les représentants CSE ont dit/demandé sur ce point",
-      "discussion": "Résumé des échanges et débats"
-    }
-  ],
-  "decisions": ["Décision 1", "Décision 2"],
-  "conclusion": "Résumé de la conclusion de la réunion"
-}`;
+RÉPONDS UNIQUEMENT avec un objet JSON ayant cette structure :
+{"titre":"string","date":"string","participants_direction":["string"],"participants_cse":["string"],"ordre_du_jour":["string"],"sections":[{"titre":"string","resume_direction":"string","resume_cse":"string","discussion":"string"}],"decisions":["string"],"conclusion":"string"}`;
 
 export class OllamaService {
   private baseUrl: string;
@@ -106,30 +86,42 @@ export class OllamaService {
 
     console.log(`[ollama] Response length: ${responseText.length} chars`);
 
-    // Parse JSON from response - handle potential markdown wrapping
+    // Parse JSON from response
     let jsonStr = responseText.trim();
-    // Remove markdown code block if present
+
+    // Remove markdown code block if present (some models still wrap)
     if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+      jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?\s*```\s*$/, '');
     }
 
+    console.log(`[ollama] Response first 300 chars: ${jsonStr.substring(0, 300)}`);
+
+    // Try direct parse first
     try {
       const parsed = JSON.parse(jsonStr);
       return this.validatePVContent(parsed);
     } catch (e: any) {
-      console.error('[ollama] Failed to parse JSON response:', jsonStr.substring(0, 500));
-      // Try to extract JSON from the response
-      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          return this.validatePVContent(parsed);
-        } catch {
-          throw new Error(`Ollama a renvoyé une réponse non-JSON. Essayez avec un modèle plus performant.\n\nDébut de la réponse: ${jsonStr.substring(0, 300)}`);
-        }
-      }
-      throw new Error(`Impossible de parser la réponse d'Ollama: ${e.message}`);
+      console.error('[ollama] Direct parse failed:', e.message);
     }
+
+    // Try to extract the largest JSON object from the response
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return this.validatePVContent(parsed);
+      } catch (e2: any) {
+        console.error('[ollama] Extracted JSON parse failed:', e2.message);
+      }
+    }
+
+    // All parsing failed
+    const preview = jsonStr.substring(0, 200);
+    throw new Error(
+      `Le modèle n'a pas renvoyé du JSON valide.\n\n` +
+      `Début de la réponse : "${preview}"\n\n` +
+      `Essayez avec un modèle plus performant (ex: llama3.2:3b, mistral:7b).`
+    );
   }
 
   private validatePVContent(data: any): PVContent {
@@ -164,9 +156,11 @@ export class OllamaService {
           { role: 'user', content: userPrompt },
         ],
         stream: true,
+        format: 'json',
         options: {
           temperature: 0.3,
-          num_predict: 8192,
+          num_predict: 16384,
+          num_ctx: 32768,
         },
       });
 
