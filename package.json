@@ -6,45 +6,84 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
     "dev:renderer": "vite",
-    "dev:main": "tsc -p tsconfig.main.json && electron .",
+    "dev:main": "tsc -p tsconfig.main.json && NODE_ENV=development electron .",
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "tsc -p tsconfig.json && vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "start": "electron .",
-    "package": "npm run build && electron-builder",
-    "package:win": "npm run build && electron-builder --win",
-    "package:mac": "npm run build && electron-builder --mac",
-    "package:linux": "npm run build && electron-builder --linux"
+    "package": "./scripts/package.sh",
+    "package:mac": "./scripts/package.sh mac",
+    "package:win": "./scripts/package.sh win",
+    "package:linux": "./scripts/package.sh linux",
+    "package:all": "./scripts/package.sh all"
   },
   "build": {
     "appId": "com.cse.pv-generation",
     "productName": "CSE PV Generation",
+    "icon": "build/icon",
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!node_modules/*/{CHANGELOG.md,README.md,readme.md,README,readme}",
+      "!node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!node_modules/**/*.d.ts",
+      "!node_modules/**/*.d.ts.map",
+      "!node_modules/**/*.js.map",
+      "!node_modules/.cache/**/*",
+      "!**/*.{ts,tsx,map,o,hmap,jsbundle,jsdt,min.js.map}",
+      "!**/node_modules/**/node-gyp/**/*",
+      "!**/node_modules/**/node-pre-gyp/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/ffmpeg",
+      "node_modules/ffmpeg-static/ffmpeg.exe"
     ],
     "extraResources": [
       {
-        "from": "models",
-        "to": "models"
+        "from": "models/.gitkeep",
+        "to": "models/.gitkeep"
       }
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dmg", "zip"]
+      "icon": "build/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
-      "target": ["nsis", "zip"]
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "zip"
+      ]
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "icon": "build/icons",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Office"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     }
   },
-  "keywords": ["cse", "pv", "transcription", "whisper", "electron"],
+  "keywords": [
+    "cse",
+    "pv",
+    "transcription",
+    "whisper",
+    "electron"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
@@ -60,6 +99,7 @@
   "dependencies": {
     "docxtemplater": "^3.46.0",
     "electron-store": "^8.1.0",
+    "ffmpeg-static": "^5.3.0",
     "pizzip": "^3.1.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

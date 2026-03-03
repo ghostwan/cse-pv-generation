@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
-import { exec, spawn } from 'child_process';
+import { spawn } from 'child_process';
+import { app } from 'electron';
 import https from 'https';
 import http from 'http';
 
@@ -31,6 +32,18 @@ const AVAILABLE_MODELS: { name: string; size: string; filename: string }[] = [
   { name: 'medium', size: '1.5 GB', filename: 'ggml-medium.bin' },
   { name: 'large', size: '3.1 GB', filename: 'ggml-large-v3.bin' },
 ];
+
+function getEmbeddedFfmpegPath(): string {
+  // ffmpeg-static provides the path to the binary
+  let ffmpegPath: string = require('ffmpeg-static');
+
+  // In packaged app, the binary is extracted from asar via asarUnpack
+  if (app.isPackaged) {
+    ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
+  }
+
+  return ffmpegPath;
+}
 
 export class TranscriptionService {
   private modelsPath: string;
@@ -172,10 +185,10 @@ export class TranscriptionService {
     }
 
     const outputPath = inputPath.replace(/\.[^.]+$/, '_converted.wav');
+    const ffmpegBin = getEmbeddedFfmpegPath();
 
     return new Promise((resolve, reject) => {
-      // Try to use ffmpeg to convert
-      const ffmpeg = spawn('ffmpeg', [
+      const ffmpeg = spawn(ffmpegBin, [
         '-i', inputPath,
         '-ar', '16000',
         '-ac', '1',
@@ -184,19 +197,24 @@ export class TranscriptionService {
         outputPath,
       ]);
 
+      let stderr = '';
+      ffmpeg.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
       ffmpeg.on('close', (code) => {
         if (code === 0) {
           resolve(outputPath);
         } else {
           reject(new Error(
-            'Impossible de convertir le fichier audio. Assurez-vous que ffmpeg est installé, ou utilisez un fichier WAV directement.'
+            `Impossible de convertir le fichier audio (code ${code}).\n${stderr.slice(-500)}`
           ));
         }
       });
 
-      ffmpeg.on('error', () => {
+      ffmpeg.on('error', (err) => {
         reject(new Error(
-          'ffmpeg non trouvé. Installez ffmpeg pour convertir les fichiers audio, ou utilisez un fichier WAV 16kHz mono.'
+          `Erreur lors du lancement de ffmpeg embarqué: ${err.message}`
         ));
       });
     });

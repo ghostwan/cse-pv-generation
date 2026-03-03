@@ -39,8 +39,10 @@ function createWindow() {
 }
 
 function initializeServices() {
+  // Store models in userData so they persist across updates
+  // and don't bloat the app bundle
   const modelsPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'models')
+    ? path.join(app.getPath('userData'), 'models')
     : path.join(__dirname, '../../models');
 
   transcriptionService = new TranscriptionService(modelsPath);
