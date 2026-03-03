@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, session, Notification } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { TranscriptionService } from './services/transcription';
 import { TemplateService } from './services/template';
 import { DocumentGenerator } from './services/documentGenerator';
@@ -107,6 +108,47 @@ function registerIpcHandlers() {
         mainWindow?.webContents.send('transcription:download-progress', progress);
       });
       return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Transcription export/import handlers
+  ipcMain.handle('transcription:export', async (_event, data: any) => {
+    try {
+      const defaultName = data.sessionTitle
+        ? `${data.sessionTitle.replace(/[^a-zA-Z0-9àâäéèêëïîôùûüÿçÀÂÄÉÈÊËÏÎÔÙÛÜŸÇ _-]/g, '')}.json`
+        : `transcription_${new Date().toISOString().split('T')[0]}.json`;
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        filters: [{ name: 'Transcription JSON', extensions: ['json'] }],
+        defaultPath: defaultName,
+      });
+      if (result.canceled || !result.filePath) {
+        return { success: false, error: 'Export annulé' };
+      }
+      fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2), 'utf-8');
+      return { success: true, data: result.filePath };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('transcription:import', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        properties: ['openFile'],
+        filters: [{ name: 'Transcription JSON', extensions: ['json'] }],
+      });
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, error: 'Import annulé' };
+      }
+      const content = fs.readFileSync(result.filePaths[0], 'utf-8');
+      const data = JSON.parse(content);
+      // Basic validation
+      if (!data.segments || !Array.isArray(data.segments) || typeof data.fullText !== 'string') {
+        return { success: false, error: 'Fichier invalide : format de transcription non reconnu' };
+      }
+      return { success: true, data };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

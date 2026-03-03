@@ -38,12 +38,23 @@ export interface IpcResponse<T = any> {
   error?: string;
 }
 
+export interface TranscriptionExport {
+  version: number;
+  exportedAt: string;
+  sessionTitle: string;
+  audioFileName?: string;
+  segments: TranscriptionSegment[];
+  fullText: string;
+}
+
 export interface ElectronAPI {
   transcribe: (audioFilePath: string, options?: { language?: string; model?: string }) => Promise<IpcResponse<TranscriptionResult>>;
   getModels: () => Promise<IpcResponse<ModelInfo[]>>;
   downloadModel: (modelName: string) => Promise<IpcResponse>;
   onDownloadProgress: (callback: (progress: number) => void) => () => void;
   onTranscriptionProgress: (callback: (progress: number) => void) => () => void;
+  exportTranscription: (data: TranscriptionExport) => Promise<IpcResponse<string>>;
+  importTranscription: () => Promise<IpcResponse<TranscriptionExport>>;
   openAudioFile: () => Promise<string | null>;
   openTemplateFile: () => Promise<string | null>;
   saveDocument: () => Promise<string | null>;

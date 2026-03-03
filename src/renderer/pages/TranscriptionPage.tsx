@@ -77,13 +77,65 @@ function TranscriptionPage({ appState, updateState }: Props) {
     [updateState]
   );
 
+  const handleExport = useCallback(async () => {
+    if (!appState.transcription) return;
+    try {
+      const exportData = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        sessionTitle: appState.sessionTitle,
+        audioFileName: audioFile?.split(/[\\/]/).pop() || undefined,
+        segments: appState.transcriptionSegments,
+        fullText: appState.transcription,
+      };
+      const result = await window.electronAPI.exportTranscription(exportData);
+      if (result.success) {
+        setError(null);
+      } else if (result.error && result.error !== 'Export annulé') {
+        setError(result.error);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }, [appState.transcription, appState.transcriptionSegments, appState.sessionTitle, audioFile]);
+
+  const handleImport = useCallback(async () => {
+    try {
+      const result = await window.electronAPI.importTranscription();
+      if (result.success && result.data) {
+        updateState({
+          transcription: result.data.fullText,
+          transcriptionSegments: result.data.segments,
+          sessionTitle: result.data.sessionTitle || '',
+        });
+        setError(null);
+      } else if (result.error && result.error !== 'Import annulé') {
+        setError(result.error);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }, [updateState]);
+
   const fileName = audioFile?.split(/[\\/]/).pop() || '';
 
   return (
     <div>
       <div className="page-header">
-        <h2>Transcription audio</h2>
-        <p>Sélectionnez un fichier audio de réunion CSE pour le transcrire localement</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2>Transcription audio</h2>
+            <p>Sélectionnez un fichier audio de réunion CSE pour le transcrire localement</p>
+          </div>
+          <button className="btn btn-secondary" onClick={handleImport}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Importer une transcription
+          </button>
+        </div>
       </div>
 
       {/* Step 1: Select audio file */}
@@ -191,7 +243,17 @@ function TranscriptionPage({ appState, updateState }: Props) {
         <div className="card">
           <div className="card-header">
             <h3 className="card-title">3. Résultat de la transcription</h3>
-            <span className="badge badge-success">Terminée</span>
+            <div className="flex items-center gap-2">
+              <button className="btn btn-secondary btn-sm" onClick={handleExport}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Exporter
+              </button>
+              <span className="badge badge-success">Terminée</span>
+            </div>
           </div>
 
           {/* Segments view */}

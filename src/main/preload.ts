@@ -16,6 +16,8 @@ const electronAPI = {
     ipcRenderer.on('transcription:progress', handler);
     return () => ipcRenderer.removeListener('transcription:progress', handler);
   },
+  exportTranscription: (data: any) => ipcRenderer.invoke('transcription:export', data),
+  importTranscription: () => ipcRenderer.invoke('transcription:import'),
 
   // Dialogs
   openAudioFile: () => ipcRenderer.invoke('dialog:open-audio-file'),
