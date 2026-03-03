@@ -4,9 +4,7 @@
   "description": "Application desktop pour la retranscription de réunions CSE et la génération de PV au format Word",
   "main": "dist/main/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
-    "dev:renderer": "vite",
-    "dev:main": "tsc -p tsconfig.main.json && NODE_ENV=development electron .",
+    "dev": "node scripts/dev.js",
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "tsc -p tsconfig.json && vite build",
     "build:main": "tsc -p tsconfig.main.json",
@@ -33,13 +31,15 @@
       "!node_modules/**/*.d.ts.map",
       "!node_modules/**/*.js.map",
       "!node_modules/.cache/**/*",
-      "!**/*.{ts,tsx,map,o,hmap,jsbundle,jsdt,min.js.map}",
+      "!**/*.{ts,tsx,map,hmap,jsbundle,jsdt,min.js.map}",
       "!**/node_modules/**/node-gyp/**/*",
       "!**/node_modules/**/node-pre-gyp/**/*"
     ],
     "asarUnpack": [
       "node_modules/ffmpeg-static/ffmpeg",
-      "node_modules/ffmpeg-static/ffmpeg.exe"
+      "node_modules/ffmpeg-static/ffmpeg.exe",
+      "node_modules/whisper-node/lib/whisper.cpp/main",
+      "node_modules/whisper-node/lib/whisper.cpp/ggml-metal.metal"
     ],
     "extraResources": [
       {

@@ -1,6 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { app } from 'electron';
 import https from 'https';
 import http from 'http';
@@ -34,15 +34,49 @@ const AVAILABLE_MODELS: { name: string; size: string; filename: string }[] = [
 ];
 
 function getEmbeddedFfmpegPath(): string {
-  // ffmpeg-static provides the path to the binary
   let ffmpegPath: string = require('ffmpeg-static');
-
-  // In packaged app, the binary is extracted from asar via asarUnpack
   if (app.isPackaged) {
     ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
   }
-
   return ffmpegPath;
+}
+
+function getWhisperCppPath(): string {
+  // whisper-node ships a compiled whisper.cpp binary
+  const whisperNodePath = require.resolve('whisper-node');
+  const whisperCppDir = path.join(path.dirname(whisperNodePath), '..', 'lib', 'whisper.cpp');
+  let mainBin = path.join(whisperCppDir, 'main');
+
+  if (app.isPackaged) {
+    mainBin = mainBin.replace('app.asar', 'app.asar.unpacked');
+  }
+
+  return mainBin;
+}
+
+function getWhisperCppDir(): string {
+  const whisperNodePath = require.resolve('whisper-node');
+  let dir = path.join(path.dirname(whisperNodePath), '..', 'lib', 'whisper.cpp');
+  if (app.isPackaged) {
+    dir = dir.replace('app.asar', 'app.asar.unpacked');
+  }
+  return dir;
+}
+
+function ensureWhisperBuilt(): void {
+  const mainBin = getWhisperCppPath();
+  if (!fs.existsSync(mainBin)) {
+    console.log('[transcription] whisper.cpp binary not found, attempting to build...');
+    const whisperDir = getWhisperCppDir();
+    try {
+      execSync('make', { cwd: whisperDir, stdio: 'pipe' });
+      console.log('[transcription] whisper.cpp built successfully');
+    } catch (err: any) {
+      throw new Error(
+        `whisper.cpp n'a pas pu être compilé. Assurez-vous que Xcode Command Line Tools (macOS) ou build-essential (Linux) est installé.\n${err.message}`
+      );
+    }
+  }
 }
 
 export class TranscriptionService {
@@ -52,6 +86,12 @@ export class TranscriptionService {
     this.modelsPath = modelsPath;
     if (!fs.existsSync(this.modelsPath)) {
       fs.mkdirSync(this.modelsPath, { recursive: true });
+    }
+    // Ensure whisper.cpp binary is built
+    try {
+      ensureWhisperBuilt();
+    } catch (err) {
+      console.error('[transcription] Warning:', err);
     }
   }
 
@@ -144,22 +184,20 @@ export class TranscriptionService {
     const wavPath = await this.convertToWav(audioFilePath);
 
     try {
-      // Use whisper-node for transcription
-      const whisper = require('whisper-node').default;
+      // Call whisper.cpp binary directly (more reliable than whisper-node wrapper)
+      const whisperBin = getWhisperCppPath();
+      const whisperDir = getWhisperCppDir();
 
-      const result = await whisper(wavPath, {
-        modelPath: modelPath,
-        language: language,
-        wordTimestamps: true,
-      });
+      console.log(`[transcription] Using binary: ${whisperBin}`);
+      console.log(`[transcription] Model: ${modelPath}`);
+      console.log(`[transcription] Audio: ${wavPath}`);
 
-      const segments: TranscriptionSegment[] = (result || []).map((segment: any) => ({
-        start: this.formatTimestamp(segment.start),
-        end: this.formatTimestamp(segment.end),
-        speech: segment.speech?.trim() || '',
-      }));
-
-      const fullText = segments.map((s) => s.speech).join(' ');
+      const output = await this.runWhisperCpp(whisperBin, whisperDir, modelPath, wavPath, language);
+      const segments = this.parseWhisperOutput(output);
+      const fullText = segments
+        .map((s) => s.speech)
+        .filter((s) => s.length > 0)
+        .join(' ');
 
       return { segments, fullText };
     } finally {
@@ -170,12 +208,79 @@ export class TranscriptionService {
     }
   }
 
-  private formatTimestamp(ms: number): string {
-    const totalSeconds = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  private runWhisperCpp(
+    binaryPath: string,
+    cwd: string,
+    modelPath: string,
+    audioPath: string,
+    language: string
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const args = [
+        '-m', modelPath,
+        '-f', audioPath,
+        '-l', language,
+        '--print-progress', 'false',
+      ];
+
+      console.log(`[transcription] Running: ${binaryPath} ${args.join(' ')}`);
+
+      const proc = spawn(binaryPath, args, {
+        cwd,
+        env: { ...process.env },
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      proc.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString();
+        // Log progress lines from whisper.cpp
+        const lines = data.toString().split('\n');
+        for (const line of lines) {
+          if (line.includes('progress')) {
+            console.log(`[transcription] ${line.trim()}`);
+          }
+        }
+      });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve(stdout);
+        } else {
+          console.error(`[transcription] stderr: ${stderr.slice(-1000)}`);
+          reject(new Error(`whisper.cpp a échoué (code ${code}): ${stderr.slice(-500)}`));
+        }
+      });
+
+      proc.on('error', (err) => {
+        reject(new Error(`Impossible de lancer whisper.cpp: ${err.message}`));
+      });
+    });
+  }
+
+  private parseWhisperOutput(output: string): TranscriptionSegment[] {
+    const segments: TranscriptionSegment[] = [];
+    // Parse lines like: [00:00:00.000 --> 00:00:02.000]   Allô !
+    const regex = /\[(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})\]\s*(.*)/g;
+    let match;
+
+    while ((match = regex.exec(output)) !== null) {
+      const speech = match[3].trim();
+      if (speech && speech !== '.' && speech !== '*' && !speech.match(/^\*+$/)) {
+        segments.push({
+          start: match[1].substring(0, 8), // HH:MM:SS
+          end: match[2].substring(0, 8),
+          speech,
+        });
+      }
+    }
+
+    return segments;
   }
 
   private async convertToWav(inputPath: string): Promise<string> {
@@ -185,7 +290,15 @@ export class TranscriptionService {
     }
 
     const outputPath = inputPath.replace(/\.[^.]+$/, '_converted.wav');
+
+    // Skip conversion if already converted
+    if (fs.existsSync(outputPath)) {
+      console.log(`[transcription] Using existing converted file: ${outputPath}`);
+      return outputPath;
+    }
+
     const ffmpegBin = getEmbeddedFfmpegPath();
+    console.log(`[transcription] Converting audio with ffmpeg: ${ffmpegBin}`);
 
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn(ffmpegBin, [
@@ -204,6 +317,7 @@ export class TranscriptionService {
 
       ffmpeg.on('close', (code) => {
         if (code === 0) {
+          console.log(`[transcription] Audio converted: ${outputPath}`);
           resolve(outputPath);
         } else {
           reject(new Error(

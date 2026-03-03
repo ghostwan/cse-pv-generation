@@ -1,9 +1,11 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, session } from 'electron';
 import path from 'path';
 import { TranscriptionService } from './services/transcription';
 import { TemplateService } from './services/template';
 import { DocumentGenerator } from './services/documentGenerator';
 import { StoreService } from './services/store';
+
+const isDev = process.env.NODE_ENV === 'development';
 
 let mainWindow: BrowserWindow | null = null;
 let transcriptionService: TranscriptionService;
@@ -26,12 +28,26 @@ function createWindow() {
     title: 'CSE PV Generation',
   });
 
-  if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:5173');
+  if (isDev) {
+    // Use the URL passed by dev script, or fallback to default
+    const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
+    console.log(`[main] Loading dev server: ${devUrl}`);
+    mainWindow.loadURL(devUrl);
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.error(`[main] Failed to load: ${errorDescription} (${errorCode})`);
+    if (isDev) {
+      console.log('[main] Retrying in 2 seconds...');
+      setTimeout(() => {
+        const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
+        mainWindow?.loadURL(devUrl);
+      }, 2000);
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -161,6 +177,19 @@ function registerIpcHandlers() {
 }
 
 app.whenReady().then(() => {
+  // Set CSP headers - permissive in dev, restrictive in prod
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const csp = isDev
+      ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws://localhost:* http://localhost:*; img-src 'self' data:"
+      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'";
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    });
+  });
+
   initializeServices();
   registerIpcHandlers();
   createWindow();
