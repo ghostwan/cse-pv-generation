@@ -1,27 +1,27 @@
 # CSE PV Generation
 
-Application desktop multiplateforme pour la retranscription de reunions CSE et la generation automatique de proces-verbaux au format Word.
+Cross-platform desktop application for transcribing CSE (Works Council) meetings and automatically generating minutes in Word format.
 
-## Fonctionnalites
+## Features
 
-- **Transcription locale** : Transcription audio via Whisper (whisper.cpp) - aucune donnee envoyee sur internet
-- **Affichage de la transcription** : Visualisation avec horodatage et edition du texte
-- **Upload de template Word** : Chargement d'un fichier .docx avec des placeholders `{variable}`
-- **Generation de PV** : Remplissage automatique du template avec les donnees de la reunion et export en .docx
+- **Local transcription**: Audio transcription via Whisper (whisper.cpp) - no data sent over the internet
+- **Transcription display**: View with timestamps and edit the text
+- **Word template upload**: Load a .docx file with `{variable}` placeholders
+- **Minutes generation**: Automatically fill the template with meeting data and export to .docx
 
-## Stack technique
+## Tech Stack
 
-- **Electron** : Application desktop multiplateforme (Windows, macOS, Linux)
-- **React + TypeScript** : Interface utilisateur
-- **Vite** : Build et hot reload du frontend
-- **whisper-node** : Binding Node.js pour whisper.cpp (transcription locale)
-- **docxtemplater + PizZip** : Traitement et generation de fichiers Word
-- **electron-store** : Persistance des sessions
+- **Electron**: Cross-platform desktop application (Windows, macOS, Linux)
+- **React + TypeScript**: User interface
+- **Vite**: Frontend bundling and hot reload
+- **whisper-node**: Node.js bindings for whisper.cpp (local transcription)
+- **docxtemplater + PizZip**: Word file processing and generation
+- **electron-store**: Session persistence
+- **ffmpeg-static**: Embedded audio conversion (no external dependency required)
 
-## Prerequis
+## Prerequisites
 
 - **Node.js** >= 18
-- **ffmpeg** (optionnel, pour convertir les fichiers audio non-WAV)
 
 ## Installation
 
@@ -31,113 +31,118 @@ cd cse-pv-generation
 npm install
 ```
 
-## Developpement
+## Development
 
 ```bash
-# Lancer en mode developpement
+# Run in development mode
 npm run dev
 
-# Compiler le main process uniquement
+# Build the main process only
 npm run build:main
 
-# Compiler le renderer uniquement
+# Build the renderer only
 npm run build:renderer
 
-# Compiler tout
+# Build everything
 npm run build
 ```
 
-## Build des executables
+## Packaging
 
 ```bash
-# Toutes les plateformes
+# Auto-detect current OS
 npm run package
 
-# macOS uniquement
+# macOS only
 npm run package:mac
 
-# Windows uniquement
+# Windows only
 npm run package:win
 
-# Linux uniquement
+# Linux only
 npm run package:linux
+
+# All platforms
+npm run package:all
 ```
 
-Les executables sont generes dans le dossier `release/`.
+Executables are generated in the `release/` directory.
 
-## Utilisation
+## Usage
 
-### 1. Telecharger un modele Whisper
+### 1. Download a Whisper model
 
-Allez dans l'onglet **Modeles Whisper** et telechargez au moins un modele. Le modele `base` est recommande pour commencer.
+Go to the **Whisper Models** tab and download at least one model. The `base` model is recommended to start with.
 
-### 2. Transcrire une reunion
+### 2. Transcribe a meeting
 
-1. Allez dans l'onglet **Transcription**
-2. Selectionnez un fichier audio (WAV, MP3, OGG, FLAC, M4A, etc.)
-3. Choisissez le modele et la langue
-4. Lancez la transcription
-5. Editez le texte si necessaire
+1. Go to the **Transcription** tab
+2. Select an audio file (WAV, MP3, OGG, FLAC, M4A, etc.)
+3. Choose the model and language
+4. Start the transcription
+5. Edit the text if needed
 
-### 3. Uploader un template Word
+### 3. Upload a Word template
 
-1. Allez dans l'onglet **Template Word**
-2. Selectionnez un fichier .docx contenant des placeholders
-3. Verifiez les placeholders detectes
+1. Go to the **Word Template** tab
+2. Select a .docx file containing placeholders
+3. Review the detected placeholders
 
-### 4. Generer le PV
+### 4. Generate the minutes
 
-1. Allez dans l'onglet **Generer PV**
-2. Remplissez les champs correspondant aux placeholders
-3. Cliquez sur "Generer le PV Word"
-4. Choisissez l'emplacement de sauvegarde
+1. Go to the **Generate Minutes** tab
+2. Fill in the fields corresponding to the placeholders
+3. Click "Generate Word Minutes"
+4. Choose the save location
 
-## Format du template Word
+## Word Template Format
 
-Le template utilise la syntaxe docxtemplater. Placez des variables entre accolades dans votre document Word :
+The template uses docxtemplater syntax. Place variables between curly braces in your Word document:
 
-- `{titre}` - Titre de la reunion
+- `{title}` - Meeting title
 - `{date}` - Date
-- `{transcription}` - Texte de la transcription
-- `{participants}` - Liste des participants
-- `{ordre_du_jour}` - Ordre du jour
-- `{decisions}` - Decisions prises
+- `{transcription}` - Transcription text
+- `{participants}` - List of participants
+- `{agenda}` - Agenda
+- `{decisions}` - Decisions made
 
-Pour des sections repetees :
+For repeated sections:
 
 ```
-{#points}
-- {titre_point} : {description_point}
-{/points}
+{#items}
+- {item_title}: {item_description}
+{/items}
 ```
 
-## Structure du projet
+## Project Structure
 
 ```
 cse-pv-generation/
 ├── src/
-│   ├── main/                  # Process principal Electron
-│   │   ├── main.ts            # Point d'entree Electron
-│   │   ├── preload.ts         # Script preload (bridge IPC)
+│   ├── main/                  # Electron main process
+│   │   ├── main.ts            # Electron entry point
+│   │   ├── preload.ts         # Preload script (IPC bridge)
 │   │   └── services/
-│   │       ├── transcription.ts   # Service Whisper
-│   │       ├── template.ts        # Chargement de templates
-│   │       ├── documentGenerator.ts # Generation de PV
-│   │       └── store.ts          # Persistance des donnees
-│   └── renderer/              # Interface React
-│       ├── App.tsx             # Composant principal
-│       ├── main.tsx            # Point d'entree React
-│       ├── components/         # Composants reutilisables
-│       ├── pages/              # Pages de l'application
-│       ├── styles/             # Styles CSS
-│       └── types/              # Types TypeScript
-├── models/                    # Modeles Whisper (telecharges)
+│   │       ├── transcription.ts   # Whisper service
+│   │       ├── template.ts        # Template loading
+│   │       ├── documentGenerator.ts # Minutes generation
+│   │       └── store.ts          # Data persistence
+│   └── renderer/              # React interface
+│       ├── App.tsx             # Main component
+│       ├── main.tsx            # React entry point
+│       ├── components/         # Reusable components
+│       ├── pages/              # Application pages
+│       ├── styles/             # CSS styles
+│       └── types/              # TypeScript types
+├── build/                     # Application icons
+├── scripts/                   # Build and packaging scripts
+├── models/                    # Whisper models (downloaded at runtime)
 ├── package.json
-├── tsconfig.json              # Config TS renderer
-├── tsconfig.main.json         # Config TS main
-└── vite.config.ts             # Config Vite
+├── tsconfig.json              # Renderer TS config
+├── tsconfig.main.json         # Main process TS config
+└── vite.config.ts             # Vite config
 ```
 
-## Licence
+## License
 
 MIT
